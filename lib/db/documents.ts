@@ -1,3 +1,5 @@
+import { SupabaseClient } from '@supabase/supabase-js';
+import { getSupabaseServerClient } from '../supabase/server';
 import { getSupabaseClient } from '../supabase/client';
 import { Document, DocumentContent, DocumentShare } from '../types/database';
 
@@ -6,11 +8,19 @@ const DEFAULT_DOC_CONTENT: DocumentContent = {
   content: [{ type: 'paragraph' }],
 };
 
+function resolveClient(overrideClient?: SupabaseClient): SupabaseClient {
+  if (overrideClient) return overrideClient;
+  if (typeof window === 'undefined') {
+    return getSupabaseServerClient();
+  }
+  return getSupabaseClient();
+}
+
 /**
  * Fetch all documents owned by a specific user.
  */
-export async function getOwnedDocuments(userId: string): Promise<Document[]> {
-  const supabase = getSupabaseClient();
+export async function getOwnedDocuments(userId: string, client?: SupabaseClient): Promise<Document[]> {
+  const supabase = resolveClient(client);
   const { data, error } = await supabase
     .from('documents')
     .select('*')
@@ -26,10 +36,9 @@ export async function getOwnedDocuments(userId: string): Promise<Document[]> {
 /**
  * Fetch all documents shared with a specific user.
  */
-export async function getSharedDocuments(userId: string): Promise<Document[]> {
-  const supabase = getSupabaseClient();
+export async function getSharedDocuments(userId: string, client?: SupabaseClient): Promise<Document[]> {
+  const supabase = resolveClient(client);
 
-  // First fetch share records for the user
   const { data: shares, error: shareError } = await supabase
     .from('document_shares')
     .select('document_id')
@@ -61,8 +70,8 @@ export async function getSharedDocuments(userId: string): Promise<Document[]> {
 /**
  * Fetch a single document by ID with permission checks.
  */
-export async function getDocument(documentId: string, userId: string): Promise<Document> {
-  const supabase = getSupabaseClient();
+export async function getDocument(documentId: string, userId: string, client?: SupabaseClient): Promise<Document> {
+  const supabase = resolveClient(client);
 
   const { data: doc, error } = await supabase
     .from('documents')
@@ -100,9 +109,10 @@ export async function getDocument(documentId: string, userId: string): Promise<D
 export async function createDocument(
   title: string,
   ownerId: string,
-  content: DocumentContent = DEFAULT_DOC_CONTENT
+  content: DocumentContent = DEFAULT_DOC_CONTENT,
+  client?: SupabaseClient
 ): Promise<Document> {
-  const supabase = getSupabaseClient();
+  const supabase = resolveClient(client);
 
   const { data, error } = await supabase
     .from('documents')
@@ -120,6 +130,10 @@ export async function createDocument(
     throw new Error(`Failed to create document: ${error.message}`);
   }
 
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[DB Diagnostics] 5. JSON inserted into Supabase:', data);
+  }
+
   return data;
 }
 
@@ -129,12 +143,14 @@ export async function createDocument(
 export async function updateDocument(
   documentId: string,
   userId: string,
-  updates: { title?: string; content?: DocumentContent }
+  updates: { title?: string; content?: DocumentContent },
+  client?: SupabaseClient
 ): Promise<Document> {
-  // Ensure user has access first
-  const existingDoc = await getDocument(documentId, userId);
+  const supabase = resolveClient(client);
 
-  const supabase = getSupabaseClient();
+  // Ensure user has access first (passing server client)
+  const existingDoc = await getDocument(documentId, userId, supabase);
+
   const updateData: Record<string, unknown> = {
     updated_at: new Date().toISOString(),
   };
@@ -166,13 +182,14 @@ export async function updateDocument(
 export async function shareDocument(
   documentId: string,
   ownerId: string,
-  targetUserId: string
+  targetUserId: string,
+  client?: SupabaseClient
 ): Promise<DocumentShare> {
   if (ownerId === targetUserId) {
     throw new Error('Cannot share a document with yourself.');
   }
 
-  const supabase = getSupabaseClient();
+  const supabase = resolveClient(client);
 
   // Rule: Only document owner can create a share
   const { data: doc, error: docError } = await supabase
@@ -222,8 +239,8 @@ export async function shareDocument(
 /**
  * Get all user shares for a specific document.
  */
-export async function getDocumentShares(documentId: string): Promise<DocumentShare[]> {
-  const supabase = getSupabaseClient();
+export async function getDocumentShares(documentId: string, client?: SupabaseClient): Promise<DocumentShare[]> {
+  const supabase = resolveClient(client);
   const { data, error } = await supabase
     .from('document_shares')
     .select('*')

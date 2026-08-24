@@ -6,7 +6,7 @@ export interface User {
 }
 
 export type DocumentContent = {
-  type: string;
+  type?: string;
   content?: Array<Record<string, unknown>>;
   [key: string]: unknown;
 };

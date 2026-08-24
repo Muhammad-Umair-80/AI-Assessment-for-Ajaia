@@ -51,8 +51,8 @@ EXECUTE FUNCTION update_updated_at_column();
 -- 6. Seed Users (Deterministic UUIDs & safe to run repeatedly)
 INSERT INTO users (id, name, email) VALUES
     ('00000000-0000-0000-0000-000000000001', 'Muhammad Umair', '44muhammadumair@gmail.com'),
-    ('00000000-0000-0000-0000-000000000002', 'Alex Rivera', 'alex@example.com'),
-    ('00000000-0000-0000-0000-000000000003', 'Sam Taylor', 'sam@example.com')
+    ('00000000-0000-0000-0000-000000000002', 'Uzair', 'uzair@example.com'),
+    ('00000000-0000-0000-0000-000000000003', 'Zubair', 'zubair@example.com')
 ON CONFLICT (id) DO UPDATE SET
     name = EXCLUDED.name,
     email = EXCLUDED.email;
