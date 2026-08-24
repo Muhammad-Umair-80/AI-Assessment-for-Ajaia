@@ -1,66 +1,59 @@
 # Ajaia Document Editor
 
-A modern, lightweight rich-text document editor and management workspace built for the Ajaia AI Engineering Assessment.
+A lightweight, collaborative rich-text document editor and management workspace inspired by Google Docs, built specifically for the **Ajaia AI-Native Full Stack Developer Assessment**.
 
 ---
 
-## 🌟 Key Features
+## 🌟 Overview
 
-* **Rich-Text Editor**: Powered by Tiptap with support for Headings (H1, H2, H3), Bold, Italic, Underline, Bullet Lists, Ordered Lists, Paragraphs, and Undo/Redo history.
-* **Document Persistence**: Supabase PostgreSQL backend with JSONB structured document content storage and Row-Level Security (RLS).
-* **Document Dashboard**: Organized workspace separating **My Documents** (owned) from **Shared with Me** (collaborations).
-* **File Import Engine**: Import `.txt`, `.md`, and `.markdown` files directly into editable Tiptap documents using a custom AST parser powered by `marked`.
-* **Mock User Switching**: Switch seamlessly between seeded accounts (**Muhammad Umair**, **Uzair**, and **Zubair**) with persistent client context stored in `localStorage`.
-* **Document Sharing & Access Control**: Share documents with team members, enforce owner-only sharing privileges, prevent duplicate sharing, and isolate unauthorized document access.
-* **Save State Indicators**: Real-time toolbar status badges (`Saved`, `Unsaved changes`, `Saving...`, `Unable to save`).
-* **Usability & Accessibility**: Keyboard-accessible dialogs, loading skeletons, responsive layouts, and user-friendly error sanitization.
+The **Ajaia Document Editor** is a production-ready Web application built with Next.js 14, Tiptap, and Supabase. It provides document creation, editing, file import, mock user switching, and document sharing with access isolation.
 
 ---
 
-## 🛠️ Technology Stack
+## ✨ Features
+
+* **Document Creation**: Create new blank documents instantly from the workspace dashboard.
+* **Document Rename**: Real-time editable title header with automatic save tracking.
+* **Rich-Text Editing**: Powered by Tiptap headless editor supporting:
+  * **Paragraphs** & Headings (**H1**, **H2**, **H3**)
+  * **Bold**, **Italic**, and **Underline** inline formatting
+  * **Bulleted Lists** and **Numbered Lists**
+  * **Undo** and **Redo** history
+* **Document Persistence**: Structured `JSONB` document AST content persisted in Supabase PostgreSQL.
+* **Markdown & TXT Import**: Built-in file import engine converting raw `.txt`, `.md`, and `.markdown` files directly into Tiptap JSON AST nodes and marks.
+* **Document Sharing**: Share documents with team collaborators with duplicate share prevention and owner-only sharing privileges.
+* **Owned vs. Shared Workspace**: Visual dashboard separation between **My Documents** (owned) and **Shared with Me** (collaborations).
+* **Mock User Switching**: Switch seamlessly between seeded review accounts (**Muhammad Umair**, **Uzair**, and **Zubair**) with persistent client context stored in `localStorage`.
+* **Access Control**: Strict authorization enforcing owner access, shared user access, and blocking unauthorized users.
+* **Responsive UI**: Clean Tailwind CSS design built for desktop, tablet, and mobile screens.
+* **Error Handling & UX Polish**: User-friendly error sanitization, double-submission protection, loading skeletons, and real-time save state indicators (`Saved`, `Unsaved changes`, `Saving...`, `Unable to save`).
+
+---
+
+## 🛠️ Tech Stack
 
 * **Framework**: [Next.js 14](https://nextjs.org/) (App Router, React 18, TypeScript)
-* **Editor**: [Tiptap](https://tiptap.dev/) (`@tiptap/react`, `@tiptap/starter-kit`, `@tiptap/extension-underline`)
-* **Backend & Database**: [Supabase](https://supabase.com/) (PostgreSQL, Service-Role server mutations, RLS)
+* **Rich-Text Editor**: [Tiptap](https://tiptap.dev/) (`@tiptap/react`, `@tiptap/starter-kit`, `@tiptap/extension-underline`)
+* **Database & Storage**: [Supabase](https://supabase.com/) (PostgreSQL, JSONB document storage, Row-Level Security)
+* **Backend API**: Next.js Server-Side Route Handlers (`/api/documents`)
 * **Styling**: [Tailwind CSS](https://tailwindcss.com/)
 * **Testing**: [Vitest](https://vitest.dev/)
-* **Markdown Parser**: [Marked](https://marked.js.org/) AST Lexer
+* **Version Control & Hosting**: GitHub, Vercel
 
 ---
 
 ## 🚀 Local Setup & Installation
 
 ### 1. Prerequisites
-* Node.js v18.0.0 or higher
-* npm or yarn
+* **Node.js**: v18.0.0 or higher
+* **npm**: v9.0.0 or higher
 
-### 2. Clone & Install Dependencies
+### 2. Install Dependencies
 ```bash
-git clone <repository-url>
-cd ajaia-doc-editor
 npm install
 ```
 
-### 3. Configure Environment Variables
-Copy `.env.local.example` to `.env.local`:
-```bash
-cp .env.local.example .env.local
-```
-
-Fill in your Supabase project credentials in `.env.local`:
-```env
-NEXT_PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-here
-```
-
-### 4. Database Setup
-Run the SQL DDL script provided in `schema.sql` inside your Supabase SQL Editor:
-* Creates `users`, `documents`, and `document_shares` tables.
-* Configures indexes, updated_at triggers, and RLS policies.
-* Seeds default mock users (**Muhammad Umair**, **Uzair**, and **Zubair**).
-
-### 5. Run Development Server
+### 3. Start Development Server
 ```bash
 npm run dev
 ```
@@ -68,14 +61,44 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ---
 
+## 🔐 Environment Variables
+
+Create a `.env.local` file in the project root based on `.env.local.example`:
+
+```env
+# Public Supabase URL (Safe for Browser & Server)
+NEXT_PUBLIC_SUPABASE_URL=https://your-supabase-project.supabase.co
+
+# Public Supabase Anon API Key (Safe for Browser & Server)
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
+
+# Server-Only Supabase Service Role Key (STRICTLY REQUIRED FOR SERVER-SIDE DB MUTATIONS)
+# WARNING: NEVER expose this key to browser client components or prepend NEXT_PUBLIC_
+SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
+```
+
+> [!IMPORTANT]
+> `SUPABASE_SERVICE_ROLE_KEY` is a server-only secret required for Next.js App Router API Route Handlers. It must **never** be exposed to client components or prepended with `NEXT_PUBLIC_`.
+
+---
+
+## 🗄️ Database Setup
+
+Run the SQL script [`schema.sql`](file:///c:/DATA/program/AI%20Assessment%20for%20Ajaia/schema.sql) in your Supabase SQL Editor to initialize:
+1. `users`, `documents`, and `document_shares` tables.
+2. Row-Level Security (RLS) policies and `updated_at` triggers.
+3. Seed users (**Muhammad Umair**, **Uzair**, **Zubair**).
+
+---
+
 ## 🧪 Testing & Verification
 
-Run the Vitest test suite:
+Run the Vitest test suite (20 automated unit tests):
 ```bash
 npm test
 ```
 
-Run TypeScript type checking:
+Run TypeScript type check:
 ```bash
 npx tsc --noEmit
 ```
@@ -87,8 +110,16 @@ npm run build
 
 ---
 
-## 🔒 Security & Architecture Overview
+## 📁 Supported File Types for Import
 
-* **Server-Only Service Role Mutations**: Document CRUD mutations run through server-side Next.js App Router API endpoints using `SUPABASE_SERVICE_ROLE_KEY`. The service-role key is never exposed to browser clients.
-* **Client Environment Isolation**: Browser code strictly consumes public `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
-* **Row-Level Security**: RLS remains enabled on all database tables.
+* **Formats**: `.txt`, `.md`, `.markdown`
+* **Maximum File Size**: 2 MB
+
+---
+
+## 🔗 Demo & Links
+
+* **LIVE DEMO**:
+  [PASTE VERCEL URL HERE]
+* **GitHub Repository**:
+  [PASTE GITHUB URL HERE]
