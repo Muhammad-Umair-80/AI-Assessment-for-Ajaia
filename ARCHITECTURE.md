@@ -1,24 +1,39 @@
 # Technical Architecture Documentation: Ajaia Document Editor
 
-This document presents the architectural design, technical decisions, data model, request pipeline, and scope trade-offs of the **Ajaia Document Editor**.
+This document details the architectural design, technical decisions, data persistence model, real-time collaboration topology, security posture, and production deployment configuration of the **Ajaia Document Editor**.
 
 ---
 
-## 🏗️ 1. Architecture Overview & Core Philosophy
+## 🏗️ 1. System Overview
 
-The application is structured as a full-stack Next.js 14 App Router application backed by Supabase PostgreSQL.
+The **Ajaia Document Editor** is a hybrid real-time collaborative document workspace. It combines:
+1. **Next.js 14 App Router** for server-side API endpoints, static assets, and client interface rendering.
+2. **Supabase PostgreSQL** for structured JSON document AST storage, share metadata, and access isolation.
+3. **Yjs CRDTs + Tiptap 3** for conflict-free local document state management.
+4. **Yjs WebSocket Provider (`y-websocket`) + Node Collaboration Server (`@y/websocket-server`)** for live, real-time multi-browser document synchronization.
 
-### High-Level Request Pipeline
+### High-Level System Topology
+
 ```
-┌─────────────────┐       HTTP JSON       ┌──────────────────────────┐       PostgreSQL       ┌──────────────────┐
-│                 │  ──────────────────►  │ Next.js App Router       │  ───────────────────►  │ Supabase         │
-│ Browser Client  │                       │ Route Handlers           │                        │ PostgreSQL DB    │
-│ (React / Tiptap)│  ◄──────────────────  │ (/api/documents)         │  ◄───────────────────  │ (JSONB & RLS)    │
-└─────────────────┘       JSON Response   └──────────────────────────┘       Supabase Client  └──────────────────┘
-                                                        │
-                                                        ▼
-                                         Protected SUPABASE_SERVICE_ROLE_KEY
-                                         (Server-Side Execution Only)
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                                 Browser Client                                  │
+│  ┌───────────────────────┐   ┌──────────────────────────┐   ┌────────────────┐  │
+│  │ React 18 UI / Toolbar │   │  Tiptap Editor Engine    │   │ Yjs Y.Doc AST  │  │
+│  └───────────────────────┘   └──────────────────────────┘   └────────────────┘  │
+└───────────────────────────┬──────────────────────────────────────────┬──────────┘
+                            │ HTTP JSON API                            │ WSS / WS
+                            ▼                                          ▼
+┌─────────────────────────────────────────┐      ┌────────────────────────────────┐
+│ Next.js 14 App Router (Vercel Serverless)│      │ External Yjs WebSocket Server  │
+│  - /api/documents                       │      │ (Node.js Process)              │
+│  - Protected SUPABASE_SERVICE_ROLE_KEY  │      │ - Room: ajaia-document-[id]    │
+└────────────────────┬────────────────────┘      └────────────────────────────────┘
+                     │ PostgreSQL SQL Client
+                     ▼
+┌─────────────────────────────────────────┐
+│ Supabase PostgreSQL DB                   │
+│  - users, documents, document_shares    │
+└─────────────────────────────────────────┘
 ```
 
 ---
@@ -26,133 +41,123 @@ The application is structured as a full-stack Next.js 14 App Router application 
 ## 💻 2. Frontend Architecture
 
 * **Framework**: Next.js 14 App Router with React 18 and TypeScript.
-* **Component Model**:
-  * **Dashboard (`app/page.tsx`)**: Client component displaying workspace overview, handling document creation, file imports, and document listing divided into **My Documents** and **Shared with Me**.
-  * **Editor (`app/doc/[id]/page.tsx`)**: Dynamic document editing route managing title updates, rich-text state, real-time save state indicators, and owner-only sharing.
-  * **User Context (`context/UserContext.tsx`)**: React Context provider managing client-side user switching (`currentUser`, `setCurrentUser`, `availableUsers`) synced to `localStorage`.
-* **Styling**: Vanilla Tailwind CSS with custom micro-interactions, responsive flex/grid viewports, keyboard focus rings, and accessible dialog overlays.
+* **Core Views**:
+  * **Dashboard (`app/page.tsx`)**: Renders workspace document listings (**My Documents** vs. **Shared with Me**), document creation modal, and Markdown/TXT file import dropzone.
+  * **Editor Surface (`app/doc/[id]/page.tsx`)**: Renders header controls, live title input, save status indicator, share modal, and `TiptapEditor`.
+* **Editor Component (`components/editor/TiptapEditor.tsx`)**:
+  * Instantiates a stable `Y.Doc` instance via `useState(() => new Y.Doc())`.
+  * Manages `WebsocketProvider` lifecycle and connection state (`Connecting...`, `Connected`, `Disconnected`, `Error`).
+  * Destroys `provider` and `ydoc` cleanly on component unmount.
+* **Toolbar Component (`components/editor/Toolbar.tsx`)**: Decoupled, accessible formatting toolbar rendering active format buttons and dynamic collaboration status badge.
 
 ---
 
-## 📝 3. Editor Architecture
+## 🗄️ 3. Supabase Persistence
 
-* **Editor Engine**: Headless [Tiptap Editor](https://tiptap.dev/) (`@tiptap/react`, `@tiptap/starter-kit`, `@tiptap/extension-underline`).
-* **Content Representation**: Formatted content is managed as a structured **Tiptap JSON AST** (`JSONContent`) containing `type`, `attrs`, `content` nodes, and inline `marks` (`bold`, `italic`).
-* **Toolbar Component (`components/editor/Toolbar.tsx`)**: Decoupled, accessible toolbar rendering formatting buttons (`Bold`, `Italic`, `Underline`, `H1`, `H2`, `H3`, `Bullet List`, `Ordered List`, `Undo`, `Redo`) with active states (`is-active`) and disabled states.
+The database persistence layer runs on Supabase PostgreSQL:
 
----
+### Database Schema
+1. **`users`**:
+   - `id` (`uuid`, Primary Key): Seeded user identifier.
+   - `name` (`text`): User full name.
+   - `email` (`text`, Unique): User email address.
+2. **`documents`**:
+   - `id` (`uuid`, Primary Key): Document UUID.
+   - `title` (`text`): Document title.
+   - `owner_id` (`uuid`, Foreign Key → `users.id`): Owner identifier.
+   - `content` (`jsonb`): Tiptap AST JSON document content.
+   - `created_at` / `updated_at` (`timestamptz`): Audit timestamps.
+3. **`document_shares`**:
+   - `id` (`uuid`, Primary Key): Share record identifier.
+   - `document_id` (`uuid`, Foreign Key → `documents.id`): Document reference.
+   - `user_id` (`uuid`, Foreign Key → `users.id`): Shared collaborator reference.
+   - Unique constraint `(document_id, user_id)` prevents duplicate shares.
 
-## 🔌 4. API Architecture
-
-All database mutations and access checks execute via Next.js Server-Side App Router API Route Handlers under `/api/documents`:
-
-* `GET /api/documents?userId=...&type=owned|shared`: Fetches documents owned by or shared with a specific user.
-* `POST /api/documents`: Creates a new document with optional JSON content.
-* `GET /api/documents/[id]?userId=...`: Fetches a single document after validating access rights.
-* `PUT /api/documents/[id]`: Updates document title or JSON content.
-* `POST /api/documents/[id]/share`: Shares an owned document with a target collaborator.
-
----
-
-## 🗄️ 5. Database Architecture
-
-The database is built on Supabase PostgreSQL with three primary tables:
-
-### 1. `users`
-* `id` (`uuid`, Primary Key): Seeded user identifier.
-* `name` (`text`): User full name.
-* `email` (`text`, Unique): User email address.
-
-### 2. `documents`
-* `id` (`uuid`, Primary Key): Document identifier.
-* `title` (`text`): Document title.
-* `owner_id` (`uuid`, Foreign Key → `users.id`): Document owner.
-* `content` (`jsonb`): Tiptap AST JSON content document tree.
-* `created_at` / `updated_at` (`timestamptz`): Audit timestamps automatically updated via PostgreSQL trigger.
-
-### 3. `document_shares`
-* `id` (`uuid`, Primary Key): Share record identifier.
-* `document_id` (`uuid`, Foreign Key → `documents.id`): Document reference.
-* `user_id` (`uuid`, Foreign Key → `users.id`): Shared collaborator reference.
-* `created_at` (`timestamptz`): Share creation timestamp.
-* Unique Constraint: `(document_id, user_id)` prevents duplicate sharing.
+### Server-Side API Security Model
+All database operations route through server-side Next.js Route Handlers (`/api/documents`). Server handlers authenticate mutations using `SUPABASE_SERVICE_ROLE_KEY`, enforcing access rules (owner access, shared collaborator access, self-share prevention) before execution. The service role key is strictly server-only and is **never** exposed to client browser bundles.
 
 ---
 
-## 🔐 6. Server-Side Persistence & Security Model
+## 🤝 4. Tiptap + Yjs Collaboration Integration
 
-### Why Server-Side Persistence Was Used
-During initial development, row-level security (RLS) blocked direct browser inserts because the client anon key was unauthenticated.
-
-Rather than weakening database security with permissive `USING (true) WITH CHECK (true)` policies, the architecture was designed to route all mutations through Next.js server-side Route Handlers:
-1. Client components call server API endpoints (`/api/documents`).
-2. Server API routes initialize a server-only Supabase client using `SUPABASE_SERVICE_ROLE_KEY`.
-3. Server-side code enforces business rules (ownership verification, self-sharing prevention, duplicate share checks, access authorization) before performing database operations.
-4. `SUPABASE_SERVICE_ROLE_KEY` remains strictly protected on the server and is **never** exposed to browser bundles.
+* **Conflict-Free Replicated Data Type (CRDT)**: `Y.Doc` serves as the underlying document state model, allowing concurrent typing and formatting edits from multiple clients to resolve deterministically without data loss.
+* **Tiptap Binding**: `@tiptap/extension-collaboration` binds Tiptap ProseMirror document nodes directly to `ydoc.getXmlFragment('default')`.
+* **History Management**: Tiptap's built-in `undoRedo` plugin is disabled (`StarterKit.configure({ undoRedo: false })`) so undo and redo operations map cleanly to Yjs's `UndoManager`.
 
 ---
 
-## 🤝 7. Sharing & Access Control Model
+## 🌐 5. WebSocket Architecture
 
-Business logic rules enforced in [`lib/db/documents.ts`](file:///c:/DATA/program/AI%20Assessment%20for%20Ajaia/lib/db/documents.ts):
-1. **Owner Access**: Document owner (`doc.owner_id === userId`) has full read/write access.
-2. **Shared Access**: Collaborators with a matching record in `document_shares` (`document_id`, `userId`) have read/write access.
-3. **Access Isolation**: Requests from unrelated users without owner or share records return `403 Access Denied`.
-4. **Owner-Only Sharing**: Only the document owner (`doc.owner_id === ownerId`) can invite collaborators.
-5. **Self-Sharing Rejection**: Requests sharing a document with oneself are rejected.
-6. **Duplicate Share Rejection**: Duplicate shares to an existing collaborator are caught and rejected with a friendly message.
+* **Provider**: Client components use `y-websocket` (`WebsocketProvider`) to establish a persistent WebSocket connection to the collaboration server.
+* **URL Configuration**: Environment variable `NEXT_PUBLIC_YJS_WS_URL` sets the target WebSocket server endpoint (default `ws://localhost:1234` for local dev; `wss://...` in production).
+* **Decoupled Topology**: The WebSocket server runs as an independent Node.js process. This decoupling is necessary because serverless deployment platforms (such as Vercel) terminate long-lived WebSocket connections.
 
 ---
 
-## 📄 8. File Import Pipeline
+## 🚪 6. Document Room Naming Model
 
-The file import engine ([`lib/fileImport.ts`](file:///c:/DATA/program/AI%20Assessment%20for%20Ajaia/lib/fileImport.ts)) converts imported files into native Tiptap AST JSON:
-1. **File Reading**: File contents are read in the browser using `file.text()`.
-2. **Validation**: Rejects unsupported file extensions (allows only `.txt`, `.md`, `.markdown`) and files exceeding 2 MB.
-3. **Markdown AST Token Parsing**: Utilizes `marked.lexer()` AST parser to recursively map Markdown tokens into structured Tiptap nodes:
-   * `# Heading 1` → `{ type: 'heading', attrs: { level: 1 }, content: [...] }`
-   * `## Heading 2` → `{ type: 'heading', attrs: { level: 2 }, content: [...] }`
-   * `### Heading 3` → `{ type: 'heading', attrs: { level: 3 }, content: [...] }`
-   * `**bold**` → `{ type: 'text', text: 'bold', marks: [{ type: 'bold' }] }`
-   * `*italic*` → `{ type: 'text', text: 'italic', marks: [{ type: 'italic' }] }`
-   * `- item` → `{ type: 'bulletList', content: [{ type: 'listItem', content: [...] }] }`
-   * `1. item` → `{ type: 'orderedList', content: [{ type: 'listItem', content: [...] }] }`
-4. **Persistence**: Creates a new document with the parsed AST JSON and navigates to the editor.
+* **Deterministic Scoping**: Every document maps strictly to room `ajaia-document-${documentId}`.
+* **Isolation Guarantee**: Clients editing Document A join `ajaia-document-doc-a`, while clients editing Document B join `ajaia-document-doc-b`. Documents never leak edits or awareness state across room boundaries.
 
 ---
 
-## ⚠️ 9. Error Handling Strategy
+## 👤 7. Mock-User Model & Local Storage Context
 
-* **Sanitization Utility ([`lib/utils/errorHandling.ts`](file:///c:/DATA/program/AI%20Assessment%20for%20Ajaia/lib/utils/errorHandling.ts))**: Converts technical database errors into clean UI strings:
-  * RLS policy exceptions → `"Unable to perform operation. Please check your account permissions."`
-  * Access denial → `"You don't have permission to access this document."`
-  * Duplicate share → `"This document is already shared with this user."`
-* **Development Diagnostics**: Retains detailed diagnostic logging in development mode without exposing raw stack traces or database connection strings to end-users.
+* **Seeded Reviewers**: Accounts (**Muhammad Umair**, **Uzair**, **Zubair**) allow instant assessment review without auth friction.
+* **Client Context (`context/UserContext.tsx`)**: React Context manages current user identity, persisting selection in `localStorage`.
+* **Access Control**: Switching active user dynamically updates API permissions, dashboard document filtering (**My Documents** vs. **Shared with Me**), and document access validation.
 
 ---
 
-## 🧪 10. Testing Strategy
+## ⚠️ 8. Error Handling & UX Resilience
 
-* **Framework**: Vitest.
-* **Coverage**:
-  * `__tests__/documents.test.ts`: Tests document creation, access verification, sharing authorization, self-share prevention, and duplicate share rejection.
-  * `__tests__/fileImport.test.ts`: Tests Markdown AST parsing, inline text marks, list conversions, invalid extension rejections, and empty file handling.
-* **Results**: 20/20 unit tests passing cleanly.
+* **Error Sanitization ([`lib/utils/errorHandling.ts`](file:///c:/DATA/program/AI%20Assessment%20for%20Ajaia/lib/utils/errorHandling.ts))**: Translates technical database errors into clear user-facing messages.
+* **Status Badge Feedback**: The editor toolbar displays live real-time status:
+  - **Connecting...**: Amber badge during initial connection.
+  - **Connected**: Emerald badge during active WebSocket session.
+  - **Disconnected**: Slate badge when server disconnects.
+  - **Error**: Red badge on socket failure.
+* **Hydration Protection**: `handleEditorChange` checks deep JSON equality against `document.content` to ensure initial Yjs document hydration does not trigger spurious "Unsaved changes" flags.
 
 ---
 
-## ⚖️ 11. Scope Decisions & Trade-Offs
+## 🚀 9. Deployment Architecture
 
-### Prioritized Features
-* Full working document lifecycle (Create → Edit → Save → Refresh → Reopen).
-* Headless rich-text editor with formatting toolbar.
-* Supabase PostgreSQL persistence layer.
-* AST Markdown & TXT file import pipeline.
-* Document sharing & access isolation model.
-* Seeded mock user switching.
-* Production deployability.
+```
+                               ┌──────────────────────────────────────────────┐
+                               │               Vercel Platform                │
+                               │  - Next.js 14 App Router Static & API Routes │
+                               │  - NEXT_PUBLIC_YJS_WS_URL=wss://yjs-server...│
+                               └──────────────────────┬───────────────────────┘
+                                                      │
+┌─────────────────────────┐                           │ HTTP JSON API
+│ Browser Clients (A & B) ├───────────────────────────┤
+└────────────┬────────────┘                           ▼
+             │ WSS Connection          ┌──────────────────────────────────────────────┐
+             └────────────────────────►│ Dedicated Node.js Host (Railway/Render/Fly)  │
+                                       │  - @y/websocket-server Process               │
+                                       │  - Port 1234 / WSS Endpoint                  │
+                                       └──────────────────────────────────────────────┘
+```
 
-### Deprioritized Features (Intentional Time-Box Decisions)
-* **Real Authentication**: Used seeded mock users with client state switching to focus time on core editor and persistence engineering within the assessment time-box.
-* **Real-Time Collaboration**: Multi-user WebSockets/Yjs collaboration deprioritized in favor of robust single-user editing and document sharing.
-* **Comments & Version History**: Deprioritized to ensure maximum polish on baseline document workflows.
+1. **Next.js Frontend & API Routes**: Deployed to Vercel.
+2. **Yjs WebSocket Server**: Deployed as a standing Node.js service on a persistent host (e.g. Railway, Render, Fly.io).
+3. **Database**: Managed Supabase PostgreSQL instance.
+
+---
+
+## ⚠️ 10. Known Limitations
+
+- **Infrastructure Requirement**: Real-time WebSocket synchronization requires running `@y/websocket-server` outside of Vercel serverless environment.
+- **Mock Authentication**: User switching uses client-side localStorage rather than secure JWT/OAuth sessions.
+- **Persistence Boundary**: Yjs real-time state is held in-memory across connected WebSocket clients; Supabase PostgreSQL persistence occurs on-demand via the explicit **Save** button.
+- **Scope Target**: Designed as a clean, production-ready portfolio demonstration of CRDT real-time collaboration.
+
+---
+
+## 🔮 11. Future Production Improvements
+
+1. **Yjs Binary Persistence**: Store Yjs binary updates directly in Supabase PostgreSQL (e.g. `bytea` update logs) to resume collaborative sessions without full JSON AST re-parsing.
+2. **Awareness & Cursors**: Add `y-protocols/awareness` to render live collaborator cursor positions and selection highlights with user names and avatar colors.
+3. **Production Authentication**: Replace mock user context with Supabase Auth (OAuth 2.0 / Magic Links / JWT).
+4. **Auto-Saving Debounce**: Integrate debounced background saves alongside explicit manual saves.
