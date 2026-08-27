@@ -91,8 +91,11 @@ export default function DocumentEditorPage() {
 
   const handleEditorChange = (newContent: JSONContent) => {
     setContent(newContent);
-    if (saveStatus !== 'unsaved') {
-      setSaveStatus('unsaved');
+    // Only set unsaved if content actually differs from current document persistence
+    if (document && JSON.stringify(newContent) !== JSON.stringify(document.content)) {
+      if (saveStatus !== 'unsaved') {
+        setSaveStatus('unsaved');
+      }
     }
   };
 
@@ -263,6 +266,7 @@ export default function DocumentEditorPage() {
       <main className="flex-1 py-6 sm:py-8 px-3 sm:px-6">
         <TiptapEditor
           key={document.id}
+          documentId={document.id}
           initialContent={document.content}
           onChange={handleEditorChange}
         />

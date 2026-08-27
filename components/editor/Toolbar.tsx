@@ -3,11 +3,14 @@
 import React from 'react';
 import { Editor } from '@tiptap/react';
 
+export type CollaborationStatus = 'Connecting...' | 'Connected' | 'Disconnected' | 'Error';
+
 interface ToolbarProps {
   editor: Editor | null;
+  collaborationStatus?: CollaborationStatus;
 }
 
-export const Toolbar: React.FC<ToolbarProps> = ({ editor }) => {
+export const Toolbar: React.FC<ToolbarProps> = ({ editor, collaborationStatus = 'Connecting...' }) => {
   if (!editor) {
     return null;
   }
@@ -20,6 +23,52 @@ export const Toolbar: React.FC<ToolbarProps> = ({ editor }) => {
         ? 'bg-blue-100 text-blue-800 border border-blue-200'
         : 'text-slate-700 hover:bg-slate-200 hover:text-slate-900 active:bg-slate-300'
     }`;
+
+  const getStatusBadge = () => {
+    switch (collaborationStatus) {
+      case 'Connected':
+        return (
+          <div
+            className="ml-auto flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md select-none transition-colors"
+            title="Real-time WebSocket collaboration connected"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span>Connected</span>
+          </div>
+        );
+      case 'Connecting...':
+        return (
+          <div
+            className="ml-auto flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-md select-none transition-colors"
+            title="Connecting to WebSocket collaboration server..."
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+            <span>Connecting...</span>
+          </div>
+        );
+      case 'Error':
+        return (
+          <div
+            className="ml-auto flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-red-700 bg-red-50 border border-red-200 rounded-md select-none transition-colors"
+            title="WebSocket collaboration server connection error"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span>
+            <span>Error</span>
+          </div>
+        );
+      case 'Disconnected':
+      default:
+        return (
+          <div
+            className="ml-auto flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-slate-600 bg-slate-200/70 border border-slate-300/60 rounded-md select-none transition-colors"
+            title="Real-time WebSocket collaboration disconnected"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+            <span>Disconnected</span>
+          </div>
+        );
+    }
+  };
 
   return (
     <div
@@ -151,6 +200,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({ editor }) => {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 10H11a8 8 0 00-8 8v2m18-10l-6 6m6-6l-6-6" />
         </svg>
       </button>
+
+      {/* Collaboration Status Indicator */}
+      {getStatusBadge()}
     </div>
   );
 };

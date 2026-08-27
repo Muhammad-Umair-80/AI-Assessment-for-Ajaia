@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "collaboration": "npx y-websocket-server",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
@@ -11,14 +12,18 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
+    "@tiptap/extension-collaboration": "^3.30.3",
     "@tiptap/extension-underline": "^3.30.3",
     "@tiptap/pm": "^3.30.3",
     "@tiptap/react": "^3.30.3",
     "@tiptap/starter-kit": "^3.30.3",
+    "@y/websocket-server": "^0.1.5",
     "marked": "^18.0.11",
     "next": "14.2.5",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "y-websocket": "^3.1.0",
+    "yjs": "^13.6.32"
   },
   "devDependencies": {
     "@types/node": "^20.14.10",

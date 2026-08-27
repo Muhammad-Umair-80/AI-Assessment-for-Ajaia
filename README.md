@@ -61,6 +61,85 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ---
 
+## ⚡ Real-Time Collaboration
+
+This project implements real-time collaborative editing using Yjs CRDTs and WebSocket synchronization:
+
+- **Yjs CRDT State**: `Y.Doc` serves as the authoritative, conflict-free collaborative document state model.
+- **Tiptap Collaboration**: `@tiptap/extension-collaboration` binds the Tiptap editor instance directly to `Y.Doc`.
+- **WebSocket Provider**: `y-websocket` (`WebsocketProvider`) connects the local `Y.Doc` instance to the WebSocket server configured via `NEXT_PUBLIC_YJS_WS_URL`.
+- **Isolated Collaboration Rooms**: Every document maps deterministically to its own room (`ajaia-document-${documentId}`). Documents never leak state into other rooms.
+- **Supabase Persistence Layer**: Existing Supabase PostgreSQL persistence handles saving document AST state on demand via Save button action.
+- **Decoupled Architecture**: The collaboration server runs independently from the Next.js App Router application.
+
+### Production Collaboration Topology
+
+```
+Browser Client (React / Tiptap)
+  │
+  ├───────────────────────► Vercel (Next.js Application Frontend & REST APIs)
+  │
+  └─(WebSocket / WSS)─────► External Yjs WebSocket Server (Node.js Process)
+                              │
+                              └── Shared Document Rooms (ajaia-document-[id])
+```
+
+> [!IMPORTANT]
+> **Vercel Serverless Architecture Note**: Serverless environments like Vercel Functions execute short-lived HTTP invocations and cannot maintain persistent, long-lived WebSocket connections required by Yjs real-time CRDT synchronization. Therefore, the Yjs WebSocket collaboration server MUST run on a dedicated Node-compatible WebSocket host.
+
+### How to Test Real-Time Synchronization Across Two Browsers (Local Dev)
+
+1. **Install dependencies**:
+   ```bash
+   npm install
+   ```
+
+2. **Start the Local Collaboration Server**:
+   ```bash
+   npm run collaboration
+   ```
+   *(Starts `y-websocket-server` listening locally on `ws://localhost:1234`)*
+
+3. **Start the Next.js Application**:
+   ```bash
+   npm run dev
+   ```
+
+4. **Open Two Browser Sessions**:
+   - Open Browser Session 1: [http://localhost:3000](http://localhost:3000)
+   - Open Browser Session 2 (e.g., Incognito / Private Window or another browser): [http://localhost:3000](http://localhost:3000)
+
+5. **Open the Same Document**:
+   - Open the same document in both windows.
+   - Verify status indicator shows **Connected**.
+   - Type text, format headings, bold, or lists in Window 1 and watch updates synchronize in real time to Window 2!
+
+### Deploying the Collaboration Server to Production
+
+To deploy real-time collaboration for a live deployment (e.g. Vercel):
+
+1. **Host the Yjs Server**: Deploy `@y/websocket-server` or `y-websocket-server` on any Node-compatible persistent hosting platform, such as:
+   - [Railway](https://railway.app/)
+   - [Render](https://render.com/)
+   - [Fly.io](https://fly.io/)
+   - Dedicated VPS (DigitalOcean / EC2)
+
+2. **Configure Environment Variable**:
+   Set `NEXT_PUBLIC_YJS_WS_URL` in your Vercel project environment settings to point to your secure public WebSocket endpoint:
+   ```env
+   NEXT_PUBLIC_YJS_WS_URL=wss://your-yjs-server.up.railway.app
+   ```
+
+### ⚠️ Current Collaboration Limitations
+
+- **Infrastructure Decoupling**: The collaboration server runs as a separate Node.js process independently from Next.js serverless routes.
+- **Mock User Model**: Users switch via client-side UI buttons for assessment reviewing purposes rather than full OAuth/JWT authentication.
+- **Persistence Boundary**: Real-time Yjs state is held in-memory across connected WebSocket clients; document AST persistence in Supabase PostgreSQL remains on-demand via the explicit **Save** action.
+- **Room Scoping**: Collaboration rooms are deterministically derived from document UUIDs (`ajaia-document-${documentId}`).
+- **Demonstration Target**: Designed as a lightweight, clean demonstration of CRDT state synchronization, Tiptap integration, and WebSocket state handling.
+
+---
+
 ## 🔐 Environment Variables
 
 Create a `.env.local` file in the project root based on `.env.local.example`:
